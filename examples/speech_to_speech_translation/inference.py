@@ -6,6 +6,9 @@
 
 # Adapted from https://github.com/jik876/hifi-gan
 
+# Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
+# Changes: Update torch.load for PyTorch 2.6+ compatibility.
+
 import argparse
 import glob
 import json
@@ -45,7 +48,8 @@ def progbar(i, n, size=16):
 def load_checkpoint(filepath):
     assert os.path.isfile(filepath)
     print("Loading '{}'".format(filepath))
-    checkpoint_dict = torch.load(filepath, map_location='cpu')
+    checkpoint_dict = torch.load(
+        filepath, map_location='cpu', weights_only=False)
     print("Complete.")
     return checkpoint_dict
 
@@ -94,7 +98,8 @@ def init_worker(queue, arguments):
     if os.path.isdir(a.checkpoint_file):
         config_file = os.path.join(a.checkpoint_file, 'config.json')
     else:
-        config_file = os.path.join(os.path.split(a.checkpoint_file)[0], 'config.json')
+        config_file = os.path.join(os.path.split(
+            a.checkpoint_file)[0], 'config.json')
     with open(config_file) as f:
         data = f.read()
     json_config = json.loads(data)
@@ -107,7 +112,6 @@ def init_worker(queue, arguments):
         cp_g = a.checkpoint_file
     state_dict_g = load_checkpoint(cp_g)
     generator.load_state_dict(state_dict_g['generator'])
-
 
     if a.code_file is not None:
         dataset = [x.strip().split('|') for x in open(a.code_file).readlines()]
@@ -128,11 +132,11 @@ def init_worker(queue, arguments):
                               f0_interp=h.get('f0_interp', False), vqvae=h.get('code_vq_params', False),
                               pad=a.pad)
 
-
     os.makedirs(a.output_dir, exist_ok=True)
 
     if h.get('multispkr', None):
-        spkrs = random.sample(range(len(dataset.id_to_spkr)), k=min(5, len(dataset.id_to_spkr)))
+        spkrs = random.sample(range(len(dataset.id_to_spkr)),
+                              k=min(5, len(dataset.id_to_spkr)))
 
     generator.eval()
     generator.remove_weight_norm()
@@ -147,7 +151,8 @@ def init_worker(queue, arguments):
 @torch.no_grad()
 def inference(item_index):
     code, gt_audio, filename, _ = dataset[item_index]
-    code = {k: torch.from_numpy(v).to(device).unsqueeze(0) for k, v in code.items()}
+    code = {k: torch.from_numpy(v).to(device).unsqueeze(0)
+            for k, v in code.items()}
 
     if a.parts:
         parts = Path(filename).parts
@@ -158,7 +163,8 @@ def inference(item_index):
     new_code = dict(code)
 
     if a.dur_prediction:
-        new_code['code'] = torch.unique_consecutive(new_code['code']).unsqueeze(0)
+        new_code['code'] = torch.unique_consecutive(
+            new_code['code']).unsqueeze(0)
         new_code['dur_prediction'] = True
 
     audio, rtf = generate(h, generator, new_code)
@@ -168,7 +174,8 @@ def inference(item_index):
 
     if h.get('multispkr', None):
         if a.random_speakers:
-            local_spkrs = random.sample(range(len(dataset.id_to_spkr)), k=min(5, len(dataset.id_to_spkr)))
+            local_spkrs = random.sample(
+                range(len(dataset.id_to_spkr)), k=min(5, len(dataset.id_to_spkr)))
         else:
             local_spkrs = spkrs
 
@@ -177,13 +184,15 @@ def inference(item_index):
 
             audio, rtf = generate(h, generator, code)
 
-            output_file = os.path.join(a.output_dir, fname_out_name + f'_{k}_gen.wav')
+            output_file = os.path.join(
+                a.output_dir, fname_out_name + f'_{k}_gen.wav')
             audio = librosa.util.normalize(audio.astype(np.float32))
             write(output_file, h.sampling_rate, audio)
 
     if gt_audio is not None:
         output_file = os.path.join(a.output_dir, fname_out_name + '_gt.wav')
-        gt_audio = librosa.util.normalize(gt_audio.squeeze().numpy().astype(np.float32))
+        gt_audio = librosa.util.normalize(
+            gt_audio.squeeze().numpy().astype(np.float32))
         write(output_file, h.sampling_rate, gt_audio)
 
 
@@ -192,7 +201,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--code_file', default=None)
-    parser.add_argument('--input_code_file', default='./datasets/LJSpeech/cpc100/test.txt')
+    parser.add_argument('--input_code_file',
+                        default='./datasets/LJSpeech/cpc100/test.txt')
     parser.add_argument('--output_dir', default='generated_files')
     parser.add_argument('--checkpoint_file', required=True)
     parser.add_argument('--random-speakers', action='store_true')
@@ -218,7 +228,8 @@ def main():
     if os.path.isdir(a.checkpoint_file):
         config_file = os.path.join(a.checkpoint_file, 'config.json')
     else:
-        config_file = os.path.join(os.path.split(a.checkpoint_file)[0], 'config.json')
+        config_file = os.path.join(os.path.split(
+            a.checkpoint_file)[0], 'config.json')
     with open(config_file) as f:
         data = f.read()
     json_config = json.loads(data)

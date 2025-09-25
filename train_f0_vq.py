@@ -6,30 +6,31 @@
 
 # Adapted from https://github.com/jik876/hifi-gan
 
+from utils import scan_checkpoint, load_checkpoint, save_checkpoint, build_env, \
+    AttrDict
+from models import Quantizer
+from dataset import F0Dataset, get_dataset_filelist
+from torch.nn.parallel import DistributedDataParallel
+from torch.distributed import init_process_group
+from torch.utils.data import DistributedSampler, DataLoader
+from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
+import torch
+import json
+import argparse
+import time
+import os
 import warnings
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
-import os
-import time
-import argparse
-import json
-import torch
-import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DistributedSampler, DataLoader
-from torch.distributed import init_process_group
-from torch.nn.parallel import DistributedDataParallel
-from dataset import F0Dataset, get_dataset_filelist
-from models import Quantizer
-from utils import scan_checkpoint, load_checkpoint, save_checkpoint, build_env, \
-    AttrDict
 
 torch.backends.cudnn.benchmark = True
 
 
 def train(rank, a, h):
     if h.num_gpus > 1:
-        init_process_group(backend=h.dist_config['dist_backend'], init_method=h.dist_config['dist_url'], rank=rank)
+        init_process_group(
+            backend=h.dist_config['dist_backend'], init_method=h.dist_config['dist_url'], rank=rank)
 
     torch.cuda.manual_seed(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
@@ -56,14 +57,17 @@ def train(rank, a, h):
         last_epoch = state_dict_g['epoch']
 
     if h.num_gpus > 1:
-        generator = DistributedDataParallel(generator, device_ids=[rank]).to(device)
+        generator = DistributedDataParallel(
+            generator, device_ids=[rank]).to(device)
 
-    optim_g = torch.optim.AdamW(generator.parameters(), h.learning_rate, betas=[h.adam_b1, h.adam_b2])
+    optim_g = torch.optim.AdamW(generator.parameters(
+    ), h.learning_rate, betas=[h.adam_b1, h.adam_b2])
 
     if state_dict_g is not None:
         optim_g.load_state_dict(state_dict_g['optim_g'])
 
-    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=h.lr_decay, last_epoch=last_epoch)
+    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
+        optim_g, gamma=h.lr_decay, last_epoch=last_epoch)
 
     training_filelist, validation_filelist = get_dataset_filelist(h)
 
@@ -103,7 +107,8 @@ def train(rank, a, h):
                 start_b = time.time()
             x, y, _ = batch
             y = torch.autograd.Variable(y.to(device, non_blocking=False))
-            x = {k: torch.autograd.Variable(v.to(device, non_blocking=False)) for k, v in x.items()}
+            x = {k: torch.autograd.Variable(
+                v.to(device, non_blocking=False)) for k, v in x.items()}
 
             y_g_hat, commit_loss, metrics = generator(**x)
             f0_commit_loss = commit_loss[0]
@@ -127,7 +132,8 @@ def train(rank, a, h):
 
                 # checkpointing
                 if steps % a.checkpoint_interval == 0 and steps != 0:
-                    checkpoint_path = "{}/g_{:08d}".format(a.checkpoint_path, steps)
+                    checkpoint_path = "{}/g_{:08d}".format(
+                        a.checkpoint_path, steps)
                     save_checkpoint(checkpoint_path,
                                     {'generator': (generator.module if h.num_gpus > 1 else generator).state_dict(),
                                      'optim_g': optim_g.state_dict(), 'steps': steps, 'epoch': epoch})
@@ -135,10 +141,14 @@ def train(rank, a, h):
                 # Tensorboard summary logging
                 if steps % a.summary_interval == 0:
                     sw.add_scalar("training/gen_loss_total", loss_recon, steps)
-                    sw.add_scalar("training/commit_error", f0_commit_loss, steps)
-                    sw.add_scalar("training/used_curr", f0_metrics['used_curr'].item(), steps)
-                    sw.add_scalar("training/entropy", f0_metrics['entropy'].item(), steps)
-                    sw.add_scalar("training/usage", f0_metrics['usage'].item(), steps)
+                    sw.add_scalar("training/commit_error",
+                                  f0_commit_loss, steps)
+                    sw.add_scalar("training/used_curr",
+                                  f0_metrics['used_curr'].item(), steps)
+                    sw.add_scalar("training/entropy",
+                                  f0_metrics['entropy'].item(), steps)
+                    sw.add_scalar("training/usage",
+                                  f0_metrics['usage'].item(), steps)
 
                 # Validation
                 if steps % a.validation_interval == 0:  # and steps != 0:
@@ -148,17 +158,22 @@ def train(rank, a, h):
                     with torch.no_grad():
                         for j, batch in enumerate(validation_loader):
                             x, y, _ = batch
-                            x = {k: v.to(device, non_blocking=False) for k, v in x.items()}
-                            y = torch.autograd.Variable(y.to(device, non_blocking=False))
+                            x = {k: v.to(device, non_blocking=False)
+                                 for k, v in x.items()}
+                            y = torch.autograd.Variable(
+                                y.to(device, non_blocking=False))
 
                             y_g_hat, commit_loss, _ = generator(**x)
                             f0_commit_loss = commit_loss[0]
-                            val_err_tot += f0_commit_loss * h.get('lambda_commit', None)
+                            val_err_tot += f0_commit_loss * \
+                                h.get('lambda_commit', None)
                             val_err_tot += F.mse_loss(y_g_hat, y).item()
 
                         val_err = val_err_tot / (j + 1)
-                        sw.add_scalar("validation/mel_spec_error", val_err, steps)
-                        sw.add_scalar("validation/commit_error", f0_commit_loss, steps)
+                        sw.add_scalar(
+                            "validation/mel_spec_error", val_err, steps)
+                        sw.add_scalar("validation/commit_error",
+                                      f0_commit_loss, steps)
 
                     generator.train()
 
@@ -169,7 +184,8 @@ def train(rank, a, h):
         scheduler_g.step()
 
         if rank == 0:
-            print('Time taken for epoch {} is {} sec\n'.format(epoch + 1, int(time.time() - start)))
+            print('Time taken for epoch {} is {} sec\n'.format(
+                epoch + 1, int(time.time() - start)))
 
     if rank == 0:
         print('Finished training')

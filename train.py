@@ -6,26 +6,27 @@
 
 # Adapted from https://github.com/jik876/hifi-gan
 
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.filterwarnings(action='ignore', message='.*kernel_size exceeds volume extent.*')
-
-import itertools
-import os
-import time
-import argparse
-import json
-import torch
-import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DistributedSampler, DataLoader
-from torch.distributed import init_process_group
-from torch.nn.parallel import DistributedDataParallel
-from dataset import CodeDataset, mel_spectrogram, get_dataset_filelist
-from models import CodeGenerator, MultiPeriodDiscriminator, MultiScaleDiscriminator, feature_loss, generator_loss, \
-    discriminator_loss
 from utils import plot_spectrogram, scan_checkpoint, load_checkpoint, \
     save_checkpoint, build_env, AttrDict
+from models import CodeGenerator, MultiPeriodDiscriminator, MultiScaleDiscriminator, feature_loss, generator_loss, \
+    discriminator_loss
+from dataset import CodeDataset, mel_spectrogram, get_dataset_filelist
+from torch.nn.parallel import DistributedDataParallel
+from torch.distributed import init_process_group
+from torch.utils.data import DistributedSampler, DataLoader
+from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
+import torch
+import json
+import argparse
+import time
+import os
+import itertools
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.filterwarnings(
+    action='ignore', message='.*kernel_size exceeds volume extent.*')
+
 
 torch.backends.cudnn.benchmark = True
 
@@ -77,7 +78,8 @@ def train(rank, local_rank, a, h):
         mpd = DistributedDataParallel(mpd, device_ids=[local_rank]).to(device)
         msd = DistributedDataParallel(msd, device_ids=[local_rank]).to(device)
 
-    optim_g = torch.optim.AdamW(generator.parameters(), h.learning_rate, betas=[h.adam_b1, h.adam_b2])
+    optim_g = torch.optim.AdamW(generator.parameters(
+    ), h.learning_rate, betas=[h.adam_b1, h.adam_b2])
     optim_d = torch.optim.AdamW(itertools.chain(msd.parameters(), mpd.parameters()), h.learning_rate,
                                 betas=[h.adam_b1, h.adam_b2])
 
@@ -85,8 +87,10 @@ def train(rank, local_rank, a, h):
         optim_g.load_state_dict(state_dict_do['optim_g'])
         optim_d.load_state_dict(state_dict_do['optim_d'])
 
-    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=h.lr_decay, last_epoch=last_epoch)
-    scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=h.lr_decay, last_epoch=last_epoch)
+    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
+        optim_g, gamma=h.lr_decay, last_epoch=last_epoch)
+    scheduler_d = torch.optim.lr_scheduler.ExponentialLR(
+        optim_d, gamma=h.lr_decay, last_epoch=last_epoch)
 
     training_filelist, validation_filelist = get_dataset_filelist(h)
 
@@ -106,7 +110,8 @@ def train(rank, local_rank, a, h):
     if rank == 0:
         validset = CodeDataset(validation_filelist, h.segment_size, h.code_hop_size, h.n_fft, h.num_mels, h.hop_size,
                                h.win_size, h.sampling_rate, h.fmin, h.fmax, False, n_cache_reuse=0,
-                               fmax_loss=h.fmax_for_loss, device=device, f0=h.get('f0', None),
+                               fmax_loss=h.fmax_for_loss, device=device, f0=h.get(
+                                   'f0', None),
                                multispkr=h.get('multispkr', None),
                                f0_stats=h.get('f0_stats', None), f0_normalize=h.get('f0_normalize', False),
                                f0_feats=h.get('f0_feats', False), f0_median=h.get('f0_median', False),
@@ -132,9 +137,11 @@ def train(rank, local_rank, a, h):
                 start_b = time.time()
             x, y, _, y_mel = batch
             y = torch.autograd.Variable(y.to(device, non_blocking=False))
-            y_mel = torch.autograd.Variable(y_mel.to(device, non_blocking=False))
+            y_mel = torch.autograd.Variable(
+                y_mel.to(device, non_blocking=False))
             y = y.unsqueeze(1)
-            x = {k: torch.autograd.Variable(v.to(device, non_blocking=False)) for k, v in x.items()}
+            x = {k: torch.autograd.Variable(
+                v.to(device, non_blocking=False)) for k, v in x.items()}
 
             y_g_hat = generator(**x)
             if h.get('f0_vq_params', None) or h.get('code_vq_params', None):
@@ -155,11 +162,13 @@ def train(rank, local_rank, a, h):
 
             # MPD
             y_df_hat_r, y_df_hat_g, _, _ = mpd(y, y_g_hat.detach())
-            loss_disc_f, losses_disc_f_r, losses_disc_f_g = discriminator_loss(y_df_hat_r, y_df_hat_g)
+            loss_disc_f, losses_disc_f_r, losses_disc_f_g = discriminator_loss(
+                y_df_hat_r, y_df_hat_g)
 
             # MSD
             y_ds_hat_r, y_ds_hat_g, _, _ = msd(y, y_g_hat.detach())
-            loss_disc_s, losses_disc_s_r, losses_disc_s_g = discriminator_loss(y_ds_hat_r, y_ds_hat_g)
+            loss_disc_s, losses_disc_s_r, losses_disc_s_g = discriminator_loss(
+                y_ds_hat_r, y_ds_hat_g)
 
             loss_disc_all = loss_disc_s + loss_disc_f
 
@@ -182,7 +191,8 @@ def train(rank, local_rank, a, h):
             if h.get('f0_vq_params', None):
                 loss_gen_all += f0_commit_loss * h.get('lambda_commit', None)
             if h.get('code_vq_params', None):
-                loss_gen_all += code_commit_loss * h.get('lambda_commit_code', None)
+                loss_gen_all += code_commit_loss * \
+                    h.get('lambda_commit_code', None)
 
             loss_gen_all.backward()
             optim_g.step()
@@ -201,10 +211,12 @@ def train(rank, local_rank, a, h):
 
                 # checkpointing
                 if steps % a.checkpoint_interval == 0 and steps != 0:
-                    checkpoint_path = "{}/g_{:08d}".format(a.checkpoint_path, steps)
+                    checkpoint_path = "{}/g_{:08d}".format(
+                        a.checkpoint_path, steps)
                     save_checkpoint(checkpoint_path,
                                     {'generator': (generator.module if h.num_gpus > 1 else generator).state_dict()})
-                    checkpoint_path = "{}/do_{:08d}".format(a.checkpoint_path, steps)
+                    checkpoint_path = "{}/do_{:08d}".format(
+                        a.checkpoint_path, steps)
                     save_checkpoint(checkpoint_path, {'mpd': (mpd.module if h.num_gpus > 1 else mpd).state_dict(),
                                                       'msd': (msd.module if h.num_gpus > 1 else msd).state_dict(),
                                                       'optim_g': optim_g.state_dict(), 'optim_d': optim_d.state_dict(),
@@ -212,18 +224,27 @@ def train(rank, local_rank, a, h):
 
                 # Tensorboard summary logging
                 if steps % a.summary_interval == 0:
-                    sw.add_scalar("training/gen_loss_total", loss_gen_all, steps)
+                    sw.add_scalar("training/gen_loss_total",
+                                  loss_gen_all, steps)
                     sw.add_scalar("training/mel_spec_error", mel_error, steps)
                     if h.get('f0_vq_params', None):
-                        sw.add_scalar("training/commit_error", f0_commit_loss, steps)
-                        sw.add_scalar("training/used_curr", f0_metrics['used_curr'].item(), steps)
-                        sw.add_scalar("training/entropy", f0_metrics['entropy'].item(), steps)
-                        sw.add_scalar("training/usage", f0_metrics['usage'].item(), steps)
+                        sw.add_scalar("training/commit_error",
+                                      f0_commit_loss, steps)
+                        sw.add_scalar("training/used_curr",
+                                      f0_metrics['used_curr'].item(), steps)
+                        sw.add_scalar("training/entropy",
+                                      f0_metrics['entropy'].item(), steps)
+                        sw.add_scalar("training/usage",
+                                      f0_metrics['usage'].item(), steps)
                     if h.get('code_vq_params', None):
-                        sw.add_scalar("training/code_commit_error", code_commit_loss, steps)
-                        sw.add_scalar("training/code_used_curr", code_metrics['used_curr'].item(), steps)
-                        sw.add_scalar("training/code_entropy", code_metrics['entropy'].item(), steps)
-                        sw.add_scalar("training/code_usage", code_metrics['usage'].item(), steps)
+                        sw.add_scalar("training/code_commit_error",
+                                      code_commit_loss, steps)
+                        sw.add_scalar("training/code_used_curr",
+                                      code_metrics['used_curr'].item(), steps)
+                        sw.add_scalar("training/code_entropy",
+                                      code_metrics['entropy'].item(), steps)
+                        sw.add_scalar("training/code_usage",
+                                      code_metrics['usage'].item(), steps)
 
                 # Validation
                 if steps % a.validation_interval == 0:  # and steps != 0:
@@ -233,7 +254,8 @@ def train(rank, local_rank, a, h):
                     with torch.no_grad():
                         for j, batch in enumerate(validation_loader):
                             x, y, _, y_mel = batch
-                            x = {k: v.to(device, non_blocking=False) for k, v in x.items()}
+                            x = {k: v.to(device, non_blocking=False)
+                                 for k, v in x.items()}
 
                             y_g_hat = generator(**x)
                             if h.get('f0_vq_params', None) or h.get('code_vq_params', None):
@@ -241,33 +263,42 @@ def train(rank, local_rank, a, h):
 
                             if h.get('f0_vq_params', None):
                                 f0_commit_loss = commit_losses[1][0]
-                                val_err_tot += f0_commit_loss * h.get('lambda_commit', None)
+                                val_err_tot += f0_commit_loss * \
+                                    h.get('lambda_commit', None)
 
                             if h.get('code_vq_params', None):
                                 code_commit_loss = commit_losses[0][0]
-                                val_err_tot += code_commit_loss * h.get('lambda_commit_code', None)
-                            y_mel = torch.autograd.Variable(y_mel.to(device, non_blocking=False))
+                                val_err_tot += code_commit_loss * \
+                                    h.get('lambda_commit_code', None)
+                            y_mel = torch.autograd.Variable(
+                                y_mel.to(device, non_blocking=False))
                             y_g_hat_mel = mel_spectrogram(y_g_hat.squeeze(1), h.n_fft, h.num_mels, h.sampling_rate,
                                                           h.hop_size, h.win_size, h.fmin, h.fmax_for_loss)
                             val_err_tot += F.l1_loss(y_mel, y_g_hat_mel).item()
 
                             if j <= 4:
                                 if steps == 0:
-                                    sw.add_audio('gt/y_{}'.format(j), y[0], steps, h.sampling_rate)
-                                    sw.add_figure('gt/y_spec_{}'.format(j), plot_spectrogram(y_mel[0].cpu()), steps)
+                                    sw.add_audio(
+                                        'gt/y_{}'.format(j), y[0], steps, h.sampling_rate)
+                                    sw.add_figure(
+                                        'gt/y_spec_{}'.format(j), plot_spectrogram(y_mel[0].cpu()), steps)
 
-                                sw.add_audio('generated/y_hat_{}'.format(j), y_g_hat[0], steps, h.sampling_rate)
+                                sw.add_audio(
+                                    'generated/y_hat_{}'.format(j), y_g_hat[0], steps, h.sampling_rate)
                                 y_hat_spec = mel_spectrogram(y_g_hat[:1].squeeze(1), h.n_fft, h.num_mels,
                                                              h.sampling_rate, h.hop_size, h.win_size, h.fmin, h.fmax)
                                 sw.add_figure('generated/y_hat_spec_{}'.format(j),
                                               plot_spectrogram(y_hat_spec[:1].squeeze(0).cpu().numpy()), steps)
 
                         val_err = val_err_tot / (j + 1)
-                        sw.add_scalar("validation/mel_spec_error", val_err, steps)
+                        sw.add_scalar(
+                            "validation/mel_spec_error", val_err, steps)
                         if h.get('f0_vq_params', None):
-                            sw.add_scalar("validation/commit_error", f0_commit_loss, steps)
+                            sw.add_scalar("validation/commit_error",
+                                          f0_commit_loss, steps)
                         if h.get('code_vq_params', None):
-                            sw.add_scalar("validation/code_commit_error", code_commit_loss, steps)
+                            sw.add_scalar(
+                                "validation/code_commit_error", code_commit_loss, steps)
                     generator.train()
 
             steps += 1
@@ -278,7 +309,8 @@ def train(rank, local_rank, a, h):
         scheduler_d.step()
 
         if rank == 0:
-            print('Time taken for epoch {} is {} sec\n'.format(epoch + 1, int(time.time() - start)))
+            print('Time taken for epoch {} is {} sec\n'.format(
+                epoch + 1, int(time.time() - start)))
 
     if rank == 0:
         print('Finished training')

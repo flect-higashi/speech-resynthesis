@@ -6,6 +6,10 @@
 
 # Adapted from https://github.com/jik876/hifi-gan
 
+# Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
+# Changes: Update torch.load for PyTorch 2.6+ compatibility.
+
+import matplotlib.pylab as plt
 import glob
 import os
 import shutil
@@ -14,7 +18,6 @@ import matplotlib
 import torch
 from torch.nn.utils import weight_norm
 matplotlib.use("Agg")
-import matplotlib.pylab as plt
 
 
 def plot_spectrogram(spectrogram):
@@ -48,7 +51,8 @@ def get_padding(kernel_size, dilation=1):
 def load_checkpoint(filepath, device):
     assert os.path.isfile(filepath)
     print("Loading '{}'".format(filepath))
-    checkpoint_dict = torch.load(filepath, map_location=device)
+    checkpoint_dict = torch.load(
+        filepath, map_location=device, weights_only=False)
     print("Complete.")
     return checkpoint_dict
 
