@@ -8,6 +8,7 @@
 
 # Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
 # Changes: Update torch.load for PyTorch 2.6+ compatibility.
+#          Implement method for LibriSpeech dataset.
 
 import random
 from pathlib import Path
@@ -156,6 +157,8 @@ def parse_speaker(path, method):
         return 'A'
     elif callable(method):
         return method(path)
+    elif method == 'librispeech':
+        return path.parent.parent.name
     else:
         raise NotImplementedError()
 
@@ -294,10 +297,16 @@ class CodeDataset(torch.utils.data.Dataset):
             feats['f0'] = f0.squeeze(0)
 
         if self.multispkr:
-            feats['spkr'] = self._get_spkr(index)
+            if self.multispkr == 'librispeech':
+                feats['spkr'] = self._get_spkr_librispeech(index)
+            else:
+                feats['spkr'] = self._get_spkr(index)
 
         if self.f0_normalize:
-            spkr_id = self._get_spkr(index).item()
+            if self.multispkr == "librispeech":
+                spkr_id = self._get_spkr_librispeech(index).item()
+            else:
+                spkr_id = self._get_spkr(index).item()
 
             if spkr_id not in self.f0_stats:
                 mean = self.f0_stats['f0_mean']
@@ -325,6 +334,10 @@ class CodeDataset(torch.utils.data.Dataset):
         spkr_id = torch.LongTensor(
             [self.spkr_to_id[spkr_name]]).view(1).numpy()
         return spkr_id
+
+    def _get_spkr_librispeech(self, idx):
+        spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
+        return torch.LongTensor([int(spkr_name)]).view(1)
 
     def __len__(self):
         return len(self.audio_files)
@@ -424,10 +437,16 @@ class F0Dataset(torch.utils.data.Dataset):
         feats['f0'] = f0.squeeze(0)
 
         if self.multispkr:
-            feats['spkr'] = self._get_spkr(index)
+            if self.multispkr == 'librispeech':
+                feats['spkr'] = self._get_spkr_librispeech(index)
+            else:
+                feats['spkr'] = self._get_spkr(index)
 
         if self.f0_normalize:
-            spkr_id = self._get_spkr(index).item()
+            if self.multispkr == "librispeech":
+                spkr_id = self._get_spkr_librispeech(index).item()
+            else:
+                spkr_id = self._get_spkr(index).item()
 
             if spkr_id not in self.f0_stats:
                 mean = self.f0_stats['f0_mean']
@@ -455,6 +474,10 @@ class F0Dataset(torch.utils.data.Dataset):
         spkr_id = torch.LongTensor(
             [self.spkr_to_id[spkr_name]]).view(1).numpy()
         return spkr_id
+
+    def _get_spkr_librispeech(self, idx):
+        spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
+        return torch.LongTensor([int(spkr_name)]).view(1)
 
     def __len__(self):
         return len(self.audio_files)
