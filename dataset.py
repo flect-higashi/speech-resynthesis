@@ -144,7 +144,7 @@ def get_dataset_filelist(h):
 
 
 def parse_speaker(path, method):
-    if type(path) == str:
+    if isinstance(path, str):
         path = Path(path)
 
     if method == 'parent_name':

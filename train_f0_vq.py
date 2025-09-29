@@ -106,16 +106,15 @@ def train(rank, a, h):
             if rank == 0:
                 start_b = time.time()
             x, y, _ = batch
-            y = torch.autograd.Variable(y.to(device, non_blocking=False))
-            x = {k: torch.autograd.Variable(
-                v.to(device, non_blocking=False)) for k, v in x.items()}
+            y = y.to(device)
+            x = {k: v.to(device) for k, v in x.items()}
 
             y_g_hat, commit_loss, metrics = generator(**x)
             f0_commit_loss = commit_loss[0]
             f0_metrics = metrics[0]
 
             # Generator
-            optim_g.zero_grad()
+            optim_g.zero_grad(set_to_none=True)
 
             # L2 Reconstruction Loss
             loss_recon = F.mse_loss(y_g_hat, y)
@@ -158,10 +157,8 @@ def train(rank, a, h):
                     with torch.no_grad():
                         for j, batch in enumerate(validation_loader):
                             x, y, _ = batch
-                            x = {k: v.to(device, non_blocking=False)
-                                 for k, v in x.items()}
-                            y = torch.autograd.Variable(
-                                y.to(device, non_blocking=False))
+                            x = {k: v.to(device) for k, v in x.items()}
+                            y = y.to(device)
 
                             y_g_hat, commit_loss, _ = generator(**x)
                             f0_commit_loss = commit_loss[0]
