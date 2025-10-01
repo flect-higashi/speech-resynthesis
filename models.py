@@ -134,7 +134,7 @@ class CodeGenerator(Generator):
         self.f0 = h.get('f0', None)
         self.multispkr = h.get('multispkr', None)
 
-        if self.multispkr:
+        if self.multispkr and self.multispkr != "librispeech":
             self.spkr = nn.Embedding(200, h.embedding_dim)
 
         self.encoder = None
@@ -222,10 +222,8 @@ class CodeGenerator(Generator):
             x = torch.cat([x, kwargs['f0']], dim=1)
 
         if self.multispkr:
-            # TODO: update for my own speaker embedding
             if self.multispkr == 'librispeech':
-                spkr = self.spkr(kwargs['spkr']).transpose(1, 2)
-                print(spkr.shape, x.shape)
+                spkr = kwargs['spkr'].unsqueeze(2)
                 spkr = self._upsample(spkr, x.shape[-1])
                 x = torch.cat([x, spkr], dim=1)
             else:

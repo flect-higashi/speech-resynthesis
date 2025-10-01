@@ -145,7 +145,7 @@ def mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin,
 
     global mel_basis, hann_window
     if fmax not in mel_basis:
-        mel = librosa_mel_fn(sampling_rate, n_fft, num_mels, fmin, fmax)
+        mel = librosa_mel_fn(sr=sampling_rate, n_fft=n_fft, n_mels=num_mels, fmin=fmin, fmax=fmax)
         mel_basis[str(fmax)+'_'+str(y.device)
                   ] = torch.from_numpy(mel).float().to(y.device)
         hann_window[str(y.device)] = torch.hann_window(win_size).to(y.device)
@@ -154,8 +154,11 @@ def mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin,
         1), (int((n_fft-hop_size)/2), int((n_fft-hop_size)/2)), mode='reflect')
     y = y.squeeze(1)
 
-    spec = torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[str(y.device)],
-                      center=center, pad_mode='reflect', normalized=False, onesided=True, return_complex=False)
+    #spec = torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[str(y.device)],
+    #                  center=center, pad_mode='reflect', normalized=False, onesided=True, return_complex=False)
+    spec = torch.view_as_real(
+           torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[str(y.device)],
+                      center=center, pad_mode='reflect', normalized=False, onesided=True, return_complex=True))
 
     spec = torch.sqrt(spec.pow(2).sum(-1)+(1e-9))
 
@@ -302,6 +305,7 @@ class CodeDataset(torch.utils.data.Dataset):
             if spk_emb is not None:
                 with open(spk_emb, "rb") as f:
                     self.spkr_emb = pickle.load(f)
+                print(f"load speaker embeddings from {spk_emb}")
 
     def _sample_interval(self, seqs, seq_len=None):
         N = max([v.shape[-1] for v in seqs])
@@ -399,6 +403,7 @@ class CodeDataset(torch.utils.data.Dataset):
         if self.multispkr:
             if self.multispkr == 'librispeech':
                 feats['spkr'] = self._get_spkr_emb_librispeech(index)
+                #feats['spkr'] = self._get_spkr(index)
             else:
                 feats['spkr'] = self._get_spkr(index)
 
@@ -441,7 +446,7 @@ class CodeDataset(torch.utils.data.Dataset):
 
     def _get_spkr_emb_librispeech(self, idx):
         spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
-        spk_emb = self.spkr_emb[spkr_name][0]
+        spk_emb = self.spkr_emb["train"][spkr_name][0]
         return torch.from_numpy(spk_emb)
 
     def __len__(self):
