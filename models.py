@@ -2,6 +2,7 @@
 
 # Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
 # Changes: Update torch.load for PyTorch 2.6+ compatibility.
+#          Update for librispeech dataset with speaker embedding.
 
 import torch
 import torch.nn.functional as F
@@ -221,9 +222,16 @@ class CodeGenerator(Generator):
             x = torch.cat([x, kwargs['f0']], dim=1)
 
         if self.multispkr:
-            spkr = self.spkr(kwargs['spkr']).transpose(1, 2)
-            spkr = self._upsample(spkr, x.shape[-1])
-            x = torch.cat([x, spkr], dim=1)
+            # TODO: update for my own speaker embedding
+            if self.multispkr == 'librispeech':
+                spkr = self.spkr(kwargs['spkr']).transpose(1, 2)
+                print(spkr.shape, x.shape)
+                spkr = self._upsample(spkr, x.shape[-1])
+                x = torch.cat([x, spkr], dim=1)
+            else:
+                spkr = self.spkr(kwargs['spkr']).transpose(1, 2)
+                spkr = self._upsample(spkr, x.shape[-1])
+                x = torch.cat([x, spkr], dim=1)
 
         for k, feat in kwargs.items():
             if k in ['spkr', 'code', 'f0']:

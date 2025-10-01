@@ -5,6 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 # Adapted from https://github.com/jik876/hifi-gan
+# Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
+# Changes: replace legacy methods for PyTorch 2.0+ compatibility.
 
 from utils import scan_checkpoint, load_checkpoint, save_checkpoint, build_env, \
     AttrDict
@@ -32,7 +34,7 @@ def train(rank, a, h):
         init_process_group(
             backend=h.dist_config['dist_backend'], init_method=h.dist_config['dist_url'], rank=rank)
 
-    torch.cuda.manual_seed(h.seed)
+    torch.cuda.manual_seed_all(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
 
     generator = Quantizer(h).to(device)
@@ -71,7 +73,7 @@ def train(rank, a, h):
 
     training_filelist, validation_filelist = get_dataset_filelist(h)
 
-    trainset = F0Dataset(training_filelist, h.segment_size, h.sampling_rate, n_cache_reuse=0, device=device,
+    trainset = F0Dataset(training_filelist, h.segment_size, h.sampling_rate, n_cache_reuse=0, device="cpu",
                          multispkr=h.get('multispkr', None), f0_stats=h.get('f0_stats', None),
                          f0_normalize=h.get('f0_normalize', False), f0_feats=h.get('f0_feats', False),
                          f0_median=h.get('f0_median', False), f0_interp=h.get('f0_interp', False),
@@ -80,16 +82,16 @@ def train(rank, a, h):
     train_sampler = DistributedSampler(trainset) if h.num_gpus > 1 else None
 
     train_loader = DataLoader(trainset, num_workers=h.num_workers, shuffle=False, sampler=train_sampler,
-                              batch_size=h.batch_size, pin_memory=True, drop_last=True)
+                              batch_size=h.batch_size, pin_memory=False, drop_last=True, persistent_workers=True)
 
     if rank == 0:
         validset = F0Dataset(validation_filelist, h.segment_size, h.sampling_rate, False, n_cache_reuse=0,
-                             device=device, multispkr=h.get('multispkr', None), f0_stats=h.get('f0_stats', None),
+                             device="cpu", multispkr=h.get('multispkr', None), f0_stats=h.get('f0_stats', None),
                              f0_normalize=h.get('f0_normalize', False), f0_feats=h.get('f0_feats', False),
                              f0_median=h.get('f0_median', False), f0_interp=h.get('f0_interp', False),
                              vqvae=h.get('code_vq_params', False))
         validation_loader = DataLoader(validset, num_workers=h.num_workers, shuffle=False, sampler=None,
-                                       batch_size=h.batch_size, pin_memory=True, drop_last=True)
+                                       batch_size=h.batch_size, pin_memory=False, drop_last=True, persistent_workers=True)
 
         sw = SummaryWriter(os.path.join(a.checkpoint_path, 'logs'))
 
@@ -214,7 +216,7 @@ def main():
     h = AttrDict(json_config)
     build_env(a.config, 'config.json', a.checkpoint_path)
 
-    torch.manual_seed(h.seed)
+    # torch.manual_seed(h.seed)
     if torch.cuda.is_available() and 'WORLD_SIZE' in os.environ:
         torch.cuda.manual_seed(h.seed)
         h.num_gpus = int(os.environ['WORLD_SIZE'])

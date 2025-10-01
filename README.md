@@ -7,9 +7,10 @@ Implementation of the method described in the [Speech Resynthesis from Discrete 
 __Abstract__: We propose using self-supervised discrete representations for the task of speech resynthesis. To generate disentangled representation, we separately extract low-bitrate representations for speech content, prosodic information, and speaker identity. This allows to synthesize speech in a controllable manner. We analyze various state-of-the-art, self-supervised representation learning methods and shed light on the advantages of each method while considering reconstruction quality and disentanglement properties. Specifically, we evaluate the F0 reconstruction, speaker identification performance (for both resynthesis and voice conversion), recordings' intelligibility, and overall quality using subjective human evaluation. Lastly, we demonstrate how these representations can be used for an ultra-lightweight speech codec. Using the obtained representations, we can get to a rate of 365 bits per second while providing better speech quality than the baseline methods.
 
 > [!NOTE]
-> Modifications were made by flect-higashi on 2025-09-25.
-> Update torch.load for PyTorch 2.6+ compability and librispeech dataset.
-> Original version in https://github.com/facebookresearch/speech-resynthesis
+> Modifications were made by flect-higashi in 2025.
+> Update torch.load for PyTorch 2.6+ compability and implement methods for librispeech dataset.
+> Also replace legacy methods for recent pytorch versions.
+> Original version in <https://github.com/facebookresearch/speech-resynthesis>
 
 ## Quick Links
 
@@ -24,7 +25,7 @@ __Abstract__: We propose using self-supervised discrete representations for the 
 
 Requirements:
 
-- Python >= 3.6
+- Python >= 3.10 (3.11 is recommended)
 - PyTorch (updated in this repo)
 - Install dependencies
 

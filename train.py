@@ -6,6 +6,10 @@
 
 # Adapted from https://github.com/jik876/hifi-gan
 
+# Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
+# Changes: replace legacy methods for PyTorch 2.0+ compatibility.
+#          Added speaker embedding, created by outside of project, loading in CodeDataset.
+
 from utils import plot_spectrogram, scan_checkpoint, load_checkpoint, \
     save_checkpoint, build_env, AttrDict
 from models import CodeGenerator, MultiPeriodDiscriminator, MultiScaleDiscriminator, feature_loss, generator_loss, \
@@ -100,7 +104,7 @@ def train(rank, local_rank, a, h):
                            f0_stats=h.get('f0_stats', None),
                            f0_normalize=h.get('f0_normalize', False), f0_feats=h.get('f0_feats', False),
                            f0_median=h.get('f0_median', False), f0_interp=h.get('f0_interp', False),
-                           vqvae=h.get('code_vq_params', False))
+                           vqvae=h.get('code_vq_params', False), spk_emb=h.get('spk_emb', None))
 
     train_sampler = DistributedSampler(trainset) if h.num_gpus > 1 else None
 
@@ -115,7 +119,8 @@ def train(rank, local_rank, a, h):
                                multispkr=h.get('multispkr', None),
                                f0_stats=h.get('f0_stats', None), f0_normalize=h.get('f0_normalize', False),
                                f0_feats=h.get('f0_feats', False), f0_median=h.get('f0_median', False),
-                               f0_interp=h.get('f0_interp', False), vqvae=h.get('code_vq_params', False))
+                               f0_interp=h.get('f0_interp', False), vqvae=h.get('code_vq_params', False),
+                               spk_emb=h.get('spk_emb', None))
         validation_loader = DataLoader(validset, num_workers=0, shuffle=False, sampler=None,
                                        batch_size=h.batch_size, pin_memory=True, drop_last=True)
 
@@ -136,12 +141,10 @@ def train(rank, local_rank, a, h):
             if rank == 0:
                 start_b = time.time()
             x, y, _, y_mel = batch
-            y = torch.autograd.Variable(y.to(device, non_blocking=False))
-            y_mel = torch.autograd.Variable(
-                y_mel.to(device, non_blocking=False))
+            y = y.to(device)
+            y_mel = y_mel.to(device)
             y = y.unsqueeze(1)
-            x = {k: torch.autograd.Variable(
-                v.to(device, non_blocking=False)) for k, v in x.items()}
+            x = {k: v.to(device) for k, v in x.items()}
 
             y_g_hat = generator(**x)
             if h.get('f0_vq_params', None) or h.get('code_vq_params', None):
@@ -176,7 +179,7 @@ def train(rank, local_rank, a, h):
             optim_d.step()
 
             # Generator
-            optim_g.zero_grad()
+            optim_g.zero_grad(set_to_none=True)
 
             # L1 Mel-Spectrogram Loss
             loss_mel = F.l1_loss(y_mel, y_g_hat_mel) * 45
@@ -254,7 +257,7 @@ def train(rank, local_rank, a, h):
                     with torch.no_grad():
                         for j, batch in enumerate(validation_loader):
                             x, y, _, y_mel = batch
-                            x = {k: v.to(device, non_blocking=False)
+                            x = {k: v.to(device)
                                  for k, v in x.items()}
 
                             y_g_hat = generator(**x)
@@ -270,8 +273,7 @@ def train(rank, local_rank, a, h):
                                 code_commit_loss = commit_losses[0][0]
                                 val_err_tot += code_commit_loss * \
                                     h.get('lambda_commit_code', None)
-                            y_mel = torch.autograd.Variable(
-                                y_mel.to(device, non_blocking=False))
+                            y_mel = y_mel.to(device)
                             y_g_hat_mel = mel_spectrogram(y_g_hat.squeeze(1), h.n_fft, h.num_mels, h.sampling_rate,
                                                           h.hop_size, h.win_size, h.fmin, h.fmax_for_loss)
                             val_err_tot += F.l1_loss(y_mel, y_g_hat_mel).item()

@@ -8,7 +8,9 @@
 
 # Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
 # Changes: Update torch.load for PyTorch 2.6+ compatibility.
-#          Implement method for LibriSpeech dataset.
+#          Implement methods for LibriSpeech dataset.
+#          Added F0 extraction using Parselmouth.
+#          Added speaker embedding, created by outside of project, loading in CodeDataset.
 
 import random
 from pathlib import Path
@@ -21,6 +23,8 @@ import torch
 import torch.utils.data
 from librosa.filters import mel as librosa_mel_fn
 from librosa.util import normalize
+import parselmouth
+import pickle
 
 MAX_WAV_VALUE = 32768.0
 
@@ -41,6 +45,94 @@ def get_yaapt_f0(audio, rate=16000, interp=False):
         else:
             f0s += [pitch.samp_values[None, None, :]]
 
+    f0 = np.vstack(f0s)
+    return f0
+
+
+def get_parselmouth_f0(audio, rate=16000, interp=False):
+    """
+    Extract F0 from audio using Parselmouth with settings to match YAAPT's behavior.
+
+    Parameters
+    ----------
+    audio : numpy.ndarray
+        Input audio array, can be multi-dimensional
+    rate : int, optional
+        Sample rate of the audio, defaults to 16000
+    interp : bool, optional
+        Whether to return interpolated F0 values, defaults to False
+
+    Returns
+    -------
+    numpy.ndarray
+        F0 contour with shape (batch, 1, time)
+    """
+    # Calculate time step (5.0 ms frame spacing as in original)
+    time_step = 5.0 / 1000.0
+
+    # Calculate expected F0 length based on audio length to ensure consistency
+    # Each 80 samples (5ms at 16kHz) should give one F0 value
+    expected_length = audio.shape[-1] // 80
+
+    f0s = []
+    for y in audio.astype(np.float64):
+        # Remove extra dimensions
+        y = np.squeeze(y)
+
+        try:
+            # Create Parselmouth Sound object
+            sound = parselmouth.Sound(y, sampling_frequency=rate)
+
+            # Extract pitch using Parselmouth
+            # Parameters tuned to match YAAPT behavior:
+            pitch = sound.to_pitch(
+                time_step=time_step,            # 5ms frames like YAAPT
+                pitch_floor=50.0,               # Minimum F0
+                pitch_ceiling=400.0,            # Maximum F0
+            )
+
+            # Extract pitch values as numpy array
+            pitch_values = pitch.selected_array['frequency']
+
+            # Replace NaN values with zeros for unvoiced frames
+            pitch_values[np.isnan(pitch_values)] = 0.0
+
+            # Ensure consistent length by padding or truncating
+            if len(pitch_values) < expected_length:
+                pitch_values = np.pad(
+                    pitch_values,
+                    (0, expected_length - len(pitch_values)),
+                    mode='constant'
+                )
+            elif len(pitch_values) > expected_length:
+                pitch_values = pitch_values[:expected_length]
+
+            if interp:
+                # Interpolate unvoiced regions
+                voiced_indices = np.where(pitch_values > 0)[0]
+                if len(voiced_indices) > 0:
+                    unvoiced_indices = np.where(pitch_values == 0)[0]
+                    if len(unvoiced_indices) > 0 and len(voiced_indices) >= 2:
+                        from scipy import interpolate
+                        f_interp = interpolate.interp1d(
+                            voiced_indices,
+                            pitch_values[voiced_indices],
+                            bounds_error=False,
+                            fill_value=(pitch_values[voiced_indices[0]],
+                                        pitch_values[voiced_indices[-1]])
+                        )
+                        pitch_values[unvoiced_indices] = f_interp(
+                            unvoiced_indices)
+
+            # Add batch and channel dimensions to match original format
+            f0s.append(pitch_values[None, None, :])
+
+        except Exception as e:
+            print(f"Error extracting F0: {e}")
+            # Create zeros with correct shape in case of error
+            f0s.append(np.zeros((1, 1, expected_length)))
+
+    # Stack all results
     f0 = np.vstack(f0s)
     return f0
 
@@ -158,6 +250,7 @@ def parse_speaker(path, method):
     elif callable(method):
         return method(path)
     elif method == 'librispeech':
+        # return path.name.split('-')[0]
         return path.parent.parent.name
     else:
         raise NotImplementedError()
@@ -168,7 +261,7 @@ class CodeDataset(torch.utils.data.Dataset):
                  hop_size, win_size, sampling_rate, fmin, fmax, split=True, n_cache_reuse=1,
                  device=None, fmax_loss=None, f0=None, multispkr=False, pad=None,
                  f0_stats=None, f0_normalize=False, f0_feats=False, f0_median=False,
-                 f0_interp=False, vqvae=False):
+                 f0_interp=False, vqvae=False, spk_emb=None):
         self.audio_files, self.codes = training_files
         random.seed(1234)
         self.segment_size = segment_size
@@ -206,6 +299,9 @@ class CodeDataset(torch.utils.data.Dataset):
 
             self.id_to_spkr = spkrs
             self.spkr_to_id = {k: v for v, k in enumerate(self.id_to_spkr)}
+            if spk_emb is not None:
+                with open(spk_emb, "rb") as f:
+                    self.spkr_emb = pickle.load(f)
 
     def _sample_interval(self, seqs, seq_len=None):
         N = max([v.shape[-1] for v in seqs])
@@ -288,17 +384,21 @@ class CodeDataset(torch.utils.data.Dataset):
             feats = {"code": code.squeeze()}
 
         if self.f0:
-            try:
-                f0 = get_yaapt_f0(
+            if self.multispkr == 'librispeech':
+                f0 = get_parselmouth_f0(
                     audio.numpy(), rate=self.sampling_rate, interp=self.f0_interp)
-            except:
-                f0 = np.zeros((1, 1, audio.shape[-1] // 80))
+            else:
+                try:
+                    f0 = get_yaapt_f0(
+                        audio.numpy(), rate=self.sampling_rate, interp=self.f0_interp)
+                except:
+                    f0 = np.zeros((1, 1, audio.shape[-1] // 80))
             f0 = f0.astype(np.float32)
             feats['f0'] = f0.squeeze(0)
 
         if self.multispkr:
             if self.multispkr == 'librispeech':
-                feats['spkr'] = self._get_spkr_librispeech(index)
+                feats['spkr'] = self._get_spkr_emb_librispeech(index)
             else:
                 feats['spkr'] = self._get_spkr(index)
 
@@ -338,6 +438,11 @@ class CodeDataset(torch.utils.data.Dataset):
     def _get_spkr_librispeech(self, idx):
         spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
         return torch.LongTensor([int(spkr_name)]).view(1)
+
+    def _get_spkr_emb_librispeech(self, idx):
+        spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
+        spk_emb = self.spkr_emb[spkr_name][0]
+        return torch.from_numpy(spk_emb)
 
     def __len__(self):
         return len(self.audio_files)
@@ -428,11 +533,15 @@ class F0Dataset(torch.utils.data.Dataset):
         audio = self._sample_interval([audio])[0]
 
         feats = {}
-        try:
-            f0 = get_yaapt_f0(
+        if self.multispkr == 'librispeech':
+            f0 = get_parselmouth_f0(
                 audio.numpy(), rate=self.sampling_rate, interp=self.f0_interp)
-        except:
-            f0 = np.zeros((1, 1, audio.shape[-1] // 80))
+        else:
+            try:
+                f0 = get_yaapt_f0(
+                    audio.numpy(), rate=self.sampling_rate, interp=self.f0_interp)
+            except:
+                f0 = np.zeros((1, 1, audio.shape[-1] // 80))
         f0 = f0.astype(np.float32)
         feats['f0'] = f0.squeeze(0)
 
@@ -477,6 +586,9 @@ class F0Dataset(torch.utils.data.Dataset):
 
     def _get_spkr_librispeech(self, idx):
         spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
+        # spkr_id = torch.LongTensor(
+        #    [self.spkr_to_id[spkr_name]]).view(1).numpy()
+        # return spkr_id
         return torch.LongTensor([int(spkr_name)]).view(1)
 
     def __len__(self):
