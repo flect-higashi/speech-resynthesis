@@ -7,7 +7,7 @@
 # Adapted from https://github.com/jik876/hifi-gan
 
 # Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
-# Changes: Update torch.load for PyTorch 2.6+ compatibility.
+# Changes: Update torch.load for PyTorch 2.6+ compatibility. Add spk_emb.
 
 import argparse
 import glob
@@ -126,13 +126,12 @@ def init_worker(queue, arguments):
     else:
         file_list = parse_manifest(a.input_code_file)
         dataset = CodeDataset(file_list, -1, h.code_hop_size, h.n_fft, h.num_mels, h.hop_size, h.win_size,
-                              h.sampling_rate, h.fmin, h.fmax, n_cache_reuse=0,
-                              fmax_loss=h.fmax_for_loss, device=device,
+                              h.sampling_rate, h.fmin, h.fmax, n_cache_reuse=0, fmax_loss=h.fmax_for_loss, device=device,
                               f0=h.get('f0', None), multispkr=h.get('multispkr', None),
                               f0_stats=h.get('f0_stats', None), f0_normalize=h.get('f0_normalize', False),
                               f0_feats=h.get('f0_feats', False), f0_median=h.get('f0_median', False),
                               f0_interp=h.get('f0_interp', False), vqvae=h.get('code_vq_params', False),
-                              pad=a.pad)
+                              pad=a.pad, spk_emb=h.get('spk_emb', None))
 
     if a.unseen_f0:
         dataset.f0_stats = torch.load(
@@ -309,7 +308,7 @@ def main():
                               f0_stats=h.get('f0_stats', None), f0_normalize=h.get('f0_normalize', False),
                               f0_feats=h.get('f0_feats', False), f0_median=h.get('f0_median', False),
                               f0_interp=h.get('f0_interp', False), vqvae=h.get('code_vq_params', False),
-                              pad=a.pad)
+                              pad=a.pad, spk_emb=h.get('spk_emb', None))
 
     if a.debug:
         ids = list(range(1))
