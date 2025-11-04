@@ -445,7 +445,12 @@ class CodeDataset(torch.utils.data.Dataset):
 
     def _get_spkr_emb_librispeech(self, idx):
         spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
-        spk_emb = self.spkr_emb["train"][spkr_name][0]
+        try:
+            spk_emb = self.spkr_emb["train"][spkr_name][0]
+        except:
+            spk_emb = self.spkr_emb["valid"][spkr_name][0]
+        finally:
+            raise IndexError("There is no speaker Id.")
         return spk_emb
 
     def __len__(self):

@@ -7,6 +7,7 @@
 # Adapted from https://github.com/jik876/hifi-gan
 # Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
 # Changes: replace legacy methods for PyTorch 2.0+ compatibility.
+#          Added flag to finish training.
 
 from utils import scan_checkpoint, load_checkpoint, save_checkpoint, build_env, \
     AttrDict
@@ -96,6 +97,8 @@ def train(rank, a, h):
         sw = SummaryWriter(os.path.join(a.checkpoint_path, 'logs'))
 
     generator.train()
+    training_finished = False  # Add a flag to track completion
+
     for epoch in range(max(0, last_epoch), a.training_epochs):
         if rank == 0:
             start = time.time()
@@ -178,7 +181,11 @@ def train(rank, a, h):
 
             steps += 1
             if steps >= a.training_steps:
-                break
+                training_finished = True
+                break  # Break from inner loop
+
+        if training_finished:  # Break from outer loop
+            break
 
         scheduler_g.step()
 

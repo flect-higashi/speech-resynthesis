@@ -9,6 +9,7 @@
 # Modified by Sho Higashi in 2025 (Original ver. is released in 2021)
 # Changes: replace legacy methods for PyTorch 2.0+ compatibility.
 #          Added speaker embedding, created by outside of project, loading in CodeDataset.
+#          Added flag to finish training.
 
 from utils import plot_spectrogram, scan_checkpoint, load_checkpoint, \
     save_checkpoint, build_env, AttrDict
@@ -129,6 +130,8 @@ def train(rank, local_rank, a, h):
     generator.train()
     mpd.train()
     msd.train()
+    training_finished = False  # Add a flag to track completion
+
     for epoch in range(max(0, last_epoch), a.training_epochs):
         if rank == 0:
             start = time.time()
@@ -305,7 +308,11 @@ def train(rank, local_rank, a, h):
 
             steps += 1
             if steps >= a.training_steps:
+                training_finished = True
                 break
+
+        if training_finished:  # Break from outer loop
+            break
 
         scheduler_g.step()
         scheduler_d.step()
