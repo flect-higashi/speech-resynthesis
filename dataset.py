@@ -447,11 +447,13 @@ class CodeDataset(torch.utils.data.Dataset):
         spkr_name = parse_speaker(self.audio_files[idx], self.multispkr)
         try:
             spk_emb = self.spkr_emb["train"][spkr_name][0]
-        except:
-            spk_emb = self.spkr_emb["valid"][spkr_name][0]
-        finally:
-            raise IndexError("There is no speaker Id.")
+        except KeyError:
+            try:
+                spk_emb = self.spkr_emb["valid"][spkr_name][0]
+            except KeyError:
+                raise KeyError(f"Speaker embedding not found for '{spkr_name}' in either 'train' or 'valid'")
         return spk_emb
+
 
     def __len__(self):
         return len(self.audio_files)
