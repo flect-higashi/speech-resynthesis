@@ -180,7 +180,7 @@ def train(rank, a, h):
                     generator.train()
 
             steps += 1
-            if steps >= a.training_steps:
+            if steps > a.training_steps:
                 training_finished = True
                 break  # Break from inner loop
 
